@@ -54,49 +54,48 @@ func Login(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// GetProfile handles the get profile API
-func GetProfile(c *gin.Context) {
-	userID, _ := c.Get("userID")
-	var user models.User
-	if err := config.DB.First(&user, userID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user profile"})
-		return
-	}
-
-	c.JSON(http.StatusOK, user)
-}
-
-// UpdateProfileRequest represents the request body for the update profile API
+//UpdateProfileRequest represents the request body for the update profile API
 type UpdateProfileRequest struct {
 	Message   string `json:"message" binding:"required"`
 	Signature string `json:"signature" binding:"required"`
 }
 
-// UpdateProfile handles the update profile API
+// UpdateProfile updates the user's profile.
+// It extracts the public address from the signed message and updates it in the database.
+// Only the metamask address is updated, and no address is updated from the request.
+// @Summary Update User Profile
+// @Description Update User Profile API
+// @Tags User
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param input body UpdateProfileRequest true "Update Profile Request"
+// @Success 200 {object} gin.H
+// @Failure 400 {object} gin.H
+// @Router /user/profile [put]
+
 func UpdateProfile(c *gin.Context) {
+	// Get the current user from the JWT token
+	user, _ := c.Get("user")
+
+	// Extract the public address from the signed message and update it in the database
 	var req UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	userID, _ := c.Get("userID")
-	var user models.User
-	if err := config.DB.First(&user, userID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user profile"})
+	publicAddress, err := models.ExtractPublicAddress(req.Message, req.Signature)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to extract public address"})
 		return
 	}
 
-	user.MetamaskAddr = req.Message // Placeholder logic to extract public address from message/signature
+	user.(*models.User).MetamaskAddress = publicAddress
 
-	if err := config.DB.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
-		return
-	}
+	// Save the updated user in the database
+	db := config.GetDB()
+	db.Save(user.(*models.User))
 
-	response := RegisterResponse{
-		PublicAddress: user.MetamaskAddr,
-	}
-
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, gin.H{"message": "Profile updated successfully"})
 }
